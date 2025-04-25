@@ -13,7 +13,7 @@ function New-CIPPUser {
         Write-Host $UserObj.PrimDomain.value
         $Aliases = ($UserObj.AddedAliases) -split '\s'
         $password = if ($UserObj.password) { $UserObj.password } else { New-passwordString }
-        $UserprincipalName = "$($UserObj.Username ? $userobj.username :$userobj.mailNickname )@$($UserObj.Domain ? $UserObj.Domain : $UserObj.PrimDomain.value)"
+        $UserprincipalName = "$($userobj.username)@$($UserObj.Domain ? $UserObj.Domain : $UserObj.PrimDomain.value)"
         Write-Host "Creating user $UserprincipalName"
         Write-Host "tenant filter is $($UserObj.tenantFilter)"
         $BodyToship = [pscustomobject] @{
@@ -22,7 +22,7 @@ function New-CIPPUser {
             'accountEnabled'    = $true
             'displayName'       = $UserObj.displayName
             'department'        = $UserObj.Department
-            'mailNickname'      = $UserObj.Username ? $userobj.username :$userobj.mailNickname
+            'mailNickname'      = $UserObj.Username ? $userobj.username : $userobj.mailNickname
             'userPrincipalName' = $UserprincipalName
             'usageLocation'     = $UserObj.usageLocation.value ? $UserObj.usageLocation.value : $UserObj.usageLocation
             'city'              = $UserObj.City
@@ -37,7 +37,7 @@ function New-CIPPUser {
                 'password'                      = $password
             }
         }
-        if ($userobj.businessPhone) { $bodytoShip | Add-Member -NotePropertyName businessPhones -NotePropertyValue @($UserObj.businessPhone) }
+        if ($userobj.businessPhones) { $bodytoShip | Add-Member -NotePropertyName businessPhones -NotePropertyValue @($UserObj.businessPhones) }
         if ($UserObj.defaultAttributes) {
             $UserObj.defaultAttributes | Get-Member -MemberType NoteProperty | ForEach-Object {
                 Write-Host "Editing user and adding $($_.Name) with value $($UserObj.defaultAttributes.$($_.Name).value)"

@@ -13,10 +13,11 @@ function Invoke-CIPPStandardDisableQRCodePin {
         CAT
             Entra (AAD) Standards
         TAG
-            "highimpact"
         ADDEDCOMPONENT
         IMPACT
             High Impact
+        ADDEDDATE
+            2024-02-10
         POWERSHELLEQUIVALENT
             Update-MgBetaPolicyAuthenticationMethodPolicyAuthenticationMethodConfiguration
         RECOMMENDEDBY
@@ -46,11 +47,14 @@ function Invoke-CIPPStandardDisableQRCodePin {
         if ($StateIsCorrect -eq $true) {
             Write-LogMessage -API 'Standards' -tenant $tenant -message 'QR Code Pin authentication method is not enabled' -sev Info
         } else {
-            Write-LogMessage -API 'Standards' -tenant $tenant -message 'QR Code Pin authentication method is enabled' -sev Alert
+            Write-StandardsAlert -message 'QR Code Pin authentication method is enabled' -object $CurrentState -tenant $tenant -standardName 'DisableQRCodePin' -standardId $Settings.standardId
+            Write-LogMessage -API 'Standards' -tenant $tenant -message 'QR Code Pin authentication method is enabled' -sev Info
         }
     }
 
     if ($Settings.report -eq $true) {
+        $state = $StateIsCorrect -eq $true ? $true :  $CurrentState
+        Set-CIPPStandardsCompareField -FieldName 'standards.DisableQRCodePin' -FieldValue $state -TenantFilter $Tenant
         Add-CIPPBPAField -FieldName 'DisableQRCodePin' -FieldValue $StateIsCorrect -StoreAs bool -Tenant $tenant
     }
 }

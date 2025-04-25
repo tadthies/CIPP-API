@@ -2,13 +2,12 @@ function Set-CIPPGroupAuthentication(
     [string]$Headers,
     [string]$GroupType,
     [string]$Id,
-    [string]$OnlyAllowInternalString,
+    [bool]$OnlyAllowInternal,
     [string]$TenantFilter,
     [string]$APIName = 'Group Sender Authentication'
 ) {
     try {
-        $OnlyAllowInternal = if ($OnlyAllowInternalString -eq 'true') { 'true' } else { 'false' }
-        $messageSuffix = if ($OnlyAllowInternal -eq 'true') { 'inside the organisation.' } else { 'inside and outside the organisation.' }
+        $messageSuffix = if ($OnlyAllowInternal -eq $true) { 'inside the organisation.' } else { 'inside and outside the organisation.' }
 
         if ($GroupType -eq 'Distribution List' -or $GroupType -eq 'Mail-Enabled Security') {
             New-ExoRequest -tenantid $TenantFilter -cmdlet 'Set-DistributionGroup' -cmdParams @{Identity = $Id; RequireSenderAuthenticationEnabled = $OnlyAllowInternal }
@@ -19,11 +18,13 @@ function Set-CIPPGroupAuthentication(
             return "$GroupType's group cannot have this setting changed"
         }
 
-        Write-LogMessage -headers $Headers -API $APIName -tenant $TenantFilter -message "$Id set to allow messages from people $messageSuffix" -Sev 'Info'
-        return "Set $GroupType group $Id to allow messages from people $messageSuffix"
+        $Message = "Successfully set $GroupType group $Id to allow messages from people $messageSuffix"
+        Write-LogMessage -headers $Headers -API $APIName -tenant $TenantFilter -message $Message -Sev 'Info'
+        return $Message
     } catch {
         $ErrorMessage = Get-CippException -Exception $_
-        Write-LogMessage -headers $Headers -API $APIName -tenant $TenantFilter -message "Delivery Management failed: $($ErrorMessage.NormalizedError)" -Sev 'Error' -LogData $ErrorMessage
-        return "Failed. $($ErrorMessage.NormalizedError)"
+        $Message = "Failed to set Delivery Management: $($ErrorMessage.NormalizedError)"
+        Write-LogMessage -headers $Headers -API $APIName -tenant $TenantFilter -message $Message -Sev 'Error' -LogData $ErrorMessage
+        return $Message
     }
 }
