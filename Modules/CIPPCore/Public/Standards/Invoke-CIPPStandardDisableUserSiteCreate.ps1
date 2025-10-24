@@ -13,6 +13,8 @@ function Invoke-CIPPStandardDisableUserSiteCreate {
         CAT
             SharePoint Standards
         TAG
+        EXECUTIVETEXT
+            Restricts the creation of new SharePoint sites to authorized administrators, preventing uncontrolled proliferation of collaboration spaces and ensuring proper governance. This maintains organized information architecture while requiring approval for new collaborative environments.
         ADDEDCOMPONENT
         IMPACT
             High Impact
@@ -28,7 +30,7 @@ function Invoke-CIPPStandardDisableUserSiteCreate {
     #>
 
     param($Tenant, $Settings)
-    $TestResult = Test-CIPPStandardLicense -StandardName 'DisableUserSiteCreate' -TenantFilter $Tenant -RequiredCapabilities @('SHAREPOINTWAC', 'SHAREPOINTSTANDARD', 'SHAREPOINTENTERPRISE', 'ONEDRIVE_BASIC', 'ONEDRIVE_ENTERPRISE')
+    $TestResult = Test-CIPPStandardLicense -StandardName 'DisableUserSiteCreate' -TenantFilter $Tenant -RequiredCapabilities @('SHAREPOINTWAC', 'SHAREPOINTSTANDARD', 'SHAREPOINTENTERPRISE', 'SHAREPOINTENTERPRISE_EDU','ONEDRIVE_BASIC', 'ONEDRIVE_ENTERPRISE')
     ##$Rerun -Type Standard -Tenant $Tenant -Settings $Settings 'DisableUserSiteCreate'
 
     if ($TestResult -eq $false) {

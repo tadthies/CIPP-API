@@ -13,6 +13,8 @@ function Invoke-CIPPStandardMailContacts {
         CAT
             Global Standards
         TAG
+        EXECUTIVETEXT
+            Establishes designated contact email addresses for receiving important Microsoft 365 subscription updates and notifications. This ensures proper communication channels are maintained for general, security, marketing, and technical matters, improving organizational responsiveness to critical system updates.
         ADDEDCOMPONENT
             {"type":"textField","name":"standards.MailContacts.GeneralContact","label":"General Contact","required":false}
             {"type":"textField","name":"standards.MailContacts.SecurityContact","label":"Security Contact","required":false}
@@ -37,8 +39,7 @@ function Invoke-CIPPStandardMailContacts {
     try {
         $TenantID = (New-GraphGetRequest -Uri 'https://graph.microsoft.com/beta/organization' -tenantid $tenant)
         $CurrentInfo = New-GraphGetRequest -Uri "https://graph.microsoft.com/beta/organization/$($TenantID.id)" -tenantid $Tenant
-    }
-    catch {
+    } catch {
         $ErrorMessage = Get-NormalizedError -Message $_.Exception.Message
         Write-LogMessage -API 'Standards' -Tenant $Tenant -Message "Could not get the MailContacts state for $Tenant. Error: $ErrorMessage" -Sev Error
         return
@@ -46,11 +47,12 @@ function Invoke-CIPPStandardMailContacts {
     $contacts = $settings
     $TechAndSecurityContacts = @($Contacts.SecurityContact, $Contacts.TechContact)
 
+    $state = $CurrentInfo.marketingNotificationEmails -eq $Contacts.MarketingContact -and `
+    ($CurrentInfo.securityComplianceNotificationMails -in $TechAndSecurityContacts -or
+        $CurrentInfo.technicalNotificationMails -in $TechAndSecurityContacts) -and `
+        $CurrentInfo.privacyProfile.contactEmail -eq $Contacts.GeneralContact
+
     if ($Settings.remediate -eq $true) {
-        $state = $CurrentInfo.marketingNotificationEmails -eq $Contacts.MarketingContact -and `
-        ($CurrentInfo.securityComplianceNotificationMails -in $TechAndSecurityContacts -or
-            $CurrentInfo.technicalNotificationMails -in $TechAndSecurityContacts) -and `
-            $CurrentInfo.privacyProfile.contactEmail -eq $Contacts.GeneralContact
         if ($state) {
             Write-LogMessage -API 'Standards' -tenant $tenant -message 'Contact emails are already set.' -sev Info
         } else {

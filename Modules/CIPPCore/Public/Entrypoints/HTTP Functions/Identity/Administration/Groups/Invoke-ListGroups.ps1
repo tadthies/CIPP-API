@@ -1,5 +1,3 @@
-using namespace System.Net
-
 function Invoke-ListGroups {
     <#
     .FUNCTIONALITY
@@ -9,17 +7,19 @@ function Invoke-ListGroups {
     #>
     [CmdletBinding()]
     param($Request, $TriggerMetadata)
-
-    $APIName = $Request.Params.CIPPEndpoint
-    $Headers = $Request.Headers
-    Write-LogMessage -headers $Headers -API $APIName -message 'Accessed this API' -Sev 'Debug'
-
     $TenantFilter = $Request.Query.tenantFilter
     $GroupID = $Request.Query.groupID
     $GroupType = $Request.Query.groupType
     $Members = $Request.Query.members
     $Owners = $Request.Query.owners
-    $SelectString = 'id,createdDateTime,displayName,description,mail,mailEnabled,mailNickname,resourceProvisioningOptions,securityEnabled,visibility,organizationId,onPremisesSamAccountName,membershipRule,groupTypes,onPremisesSyncEnabled,resourceProvisioningOptions,userPrincipalName&$expand=members($select=userPrincipalName)'
+
+    $ExpandMembers = $Request.Query.expandMembers ?? $false
+
+    $SelectString = 'id,createdDateTime,displayName,description,mail,mailEnabled,mailNickname,resourceProvisioningOptions,securityEnabled,visibility,organizationId,onPremisesSamAccountName,membershipRule,groupTypes,onPremisesSyncEnabled,resourceProvisioningOptions,userPrincipalName'
+    if ($ExpandMembers -ne $false) {
+        $SelectString = '{0}&$expand=members($select=userPrincipalName)' -f $SelectString
+    }
+
 
     $BulkRequestArrayList = [System.Collections.Generic.List[object]]::new()
 
@@ -86,7 +86,7 @@ function Invoke-ListGroups {
             $RawGraphRequest = New-GraphBulkRequest -tenantid $TenantFilter -scope 'https://graph.microsoft.com/.default' -Requests @($BulkRequestArrayList) -asapp $true
             $GraphRequest = [PSCustomObject]@{
                 groupInfo              = ($RawGraphRequest | Where-Object { $_.id -eq 1 }).body | Select-Object *, @{ Name = 'primDomain'; Expression = { $_.mail -split '@' | Select-Object -Last 1 } },
-                @{Name = 'teamsEnabled'; Expression = { if ($_.resourceProvisioningOptions -Like '*Team*') { $true } else { $false } } },
+                @{Name = 'teamsEnabled'; Expression = { if ($_.resourceProvisioningOptions -like '*Team*') { $true } else { $false } } },
                 @{Name = 'calculatedGroupType'; Expression = {
                         if ($_.mailEnabled -and $_.securityEnabled) { 'Mail-Enabled Security' }
                         if (!$_.mailEnabled -and $_.securityEnabled) { 'Security' }
@@ -123,8 +123,7 @@ function Invoke-ListGroups {
         $StatusCode = [HttpStatusCode]::Forbidden
         $GraphRequest = $ErrorMessage
     }
-    # Associate values to output bindings by calling 'Push-OutputBinding'.
-    Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+    return ([HttpResponseContext]@{
             StatusCode = $StatusCode
             Body       = $GraphRequest
         })

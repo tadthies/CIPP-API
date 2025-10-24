@@ -27,7 +27,10 @@ function Test-CIPPStandardLicense {
         [string]$TenantFilter,
 
         [Parameter(Mandatory = $true)]
-        [string[]]$RequiredCapabilities
+        [string[]]$RequiredCapabilities,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$SkipLog
     )
 
     try {
@@ -41,16 +44,22 @@ function Test-CIPPStandardLicense {
         }
 
         if ($Capabilities.Count -le 0) {
-            Write-LogMessage -API 'Standards' -tenant $TenantFilter -message "Tenant does not have the required capability to run standard $StandardName`: The tenant needs one of the following service plans: $($RequiredCapabilities -join ',')" -sev Error
-            Set-CIPPStandardsCompareField -FieldName "standards.$StandardName" -FieldValue "License Missing: This tenant is not licensed for the following capabilities: $($RequiredCapabilities -join ',')" -Tenant $TenantFilter
-            Write-Host "Tenant does not have the required capability to run standard $StandardName - $($RequiredCapabilities -join ','). Exiting"
+            if (!$SkipLog.IsPresent) {
+                Write-LogMessage -API 'Standards' -tenant $TenantFilter -message "Tenant does not have the required capability to run standard $StandardName`: The tenant needs one of the following service plans: $($RequiredCapabilities -join ',')" -sev Error
+                Set-CIPPStandardsCompareField -FieldName "standards.$StandardName" -FieldValue "License Missing: This tenant is not licensed for the following capabilities: $($RequiredCapabilities -join ',')" -Tenant $TenantFilter
+                Write-Host "Tenant does not have the required capability to run standard $StandardName - $($RequiredCapabilities -join ','). Exiting"
+            }
             return $false
         }
         Write-Host "Tenant has the required capabilities for standard $StandardName"
         return $true
     } catch {
-        Write-LogMessage -API 'Standards' -tenant $TenantFilter -message "Error checking license capabilities for standard $StandardName`: $($_.Exception.Message)" -sev Error
-        Set-CIPPStandardsCompareField -FieldName "standards.$StandardName" -FieldValue "License Missing: Error checking license capabilities - $($_.Exception.Message)" -Tenant $TenantFilter
+        if (!$SkipLog.IsPresent) {
+            # Sanitize exception message to prevent JSON parsing issues - remove characters that could interfere with JSON detection
+            $SanitizedMessage = $_.Exception.Message -replace '[{}\[\]]', ''
+            Write-LogMessage -API 'Standards' -tenant $TenantFilter -message "Error checking license capabilities for standard $StandardName`: $SanitizedMessage" -sev Error
+            Set-CIPPStandardsCompareField -FieldName "standards.$StandardName" -FieldValue "License Missing: Error checking license capabilities - $SanitizedMessage" -Tenant $TenantFilter
+        }
         return $false
     }
 }

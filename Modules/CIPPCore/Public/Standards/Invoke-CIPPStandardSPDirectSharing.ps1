@@ -7,13 +7,14 @@ function Invoke-CIPPStandardSPDirectSharing {
     .SYNOPSIS
         (Label) Default sharing to Direct users
     .DESCRIPTION
-        (Helptext) Ensure default link sharing is set to Direct in SharePoint and OneDrive
-        (DocsDescription) Ensure default link sharing is set to Direct in SharePoint and OneDrive
+        (Helptext) This standard has been deprecated in favor of the Default Sharing Link standard. 
+        (DocsDescription) This standard has been deprecated in favor of the Default Sharing Link standard. 
     .NOTES
         CAT
             SharePoint Standards
         TAG
-            "CIS"
+        EXECUTIVETEXT
+            Configures SharePoint and OneDrive to share files directly with specific people rather than creating anonymous links, improving security by ensuring only intended recipients can access shared documents. This reduces the risk of accidental data exposure through link sharing.
         ADDEDCOMPONENT
         IMPACT
             Medium Impact
@@ -31,7 +32,7 @@ function Invoke-CIPPStandardSPDirectSharing {
     #>
 
     param($Tenant, $Settings)
-    $TestResult = Test-CIPPStandardLicense -StandardName 'SPDirectSharing' -TenantFilter $Tenant -RequiredCapabilities @('SHAREPOINTWAC', 'SHAREPOINTSTANDARD', 'SHAREPOINTENTERPRISE', 'ONEDRIVE_BASIC', 'ONEDRIVE_ENTERPRISE')
+    $TestResult = Test-CIPPStandardLicense -StandardName 'SPDirectSharing' -TenantFilter $Tenant -RequiredCapabilities @('SHAREPOINTWAC', 'SHAREPOINTSTANDARD', 'SHAREPOINTENTERPRISE', 'SHAREPOINTENTERPRISE_EDU','ONEDRIVE_BASIC', 'ONEDRIVE_ENTERPRISE')
 
     if ($TestResult -eq $false) {
         Write-Host "We're exiting as the correct license is not present for this standard."
