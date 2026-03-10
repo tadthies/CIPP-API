@@ -26,6 +26,13 @@ function Invoke-ListCustomVariables {
                 Category    = 'tenant'
             },
             @{
+                Name        = 'organizationid'
+                Variable    = '%organizationid%'
+                Description = 'The tenant customer ID'
+                Type        = 'reserved'
+                Category    = 'tenant'
+            },
+            @{
                 Name        = 'tenantfilter'
                 Variable    = '%tenantfilter%'
                 Description = 'The tenant default domain name'
@@ -167,6 +174,14 @@ function Invoke-ListCustomVariables {
             $ReservedVariables = $ReservedVariables | Where-Object { $_.Category -ne 'system' }
         }
 
+        # Filter out global reserved variables if requested (for tenant group rules)
+        # These variables are the same for all tenants so they're not useful for grouping
+        if ($Request.Query.excludeGlobalReserved -eq 'true') {
+            $ReservedVariables = $ReservedVariables | Where-Object {
+                $_.Category -notin @('partner', 'cipp', 'system')
+            }
+        }
+
         # Add reserved variables first
         foreach ($Variable in $ReservedVariables) {
             $VariableMap[$Variable.Name] = $Variable
@@ -227,7 +242,7 @@ function Invoke-ListCustomVariables {
                     }
                 }
             } catch {
-                Write-LogMessage -API $APIName -message "Could not retrieve tenant-specific variables for $TenantFilter : $($_.Exception.Message)" -Sev 'Warning'
+                Write-LogMessage -API $APIName -message "Could not retrieve tenant-specific variables for $TenantFilter : $($_.Exception.Message)" -sev 'Warn'
             }
         }
 

@@ -4,7 +4,7 @@ function Get-CIPPAlertNoCAConfig {
         Entrypoint
     #>
     [CmdletBinding()]
-    Param (
+    param (
         [Parameter(Mandatory = $false)]
         [Alias('input')]
         $InputValue,
@@ -21,12 +21,16 @@ function Get-CIPPAlertNoCAConfig {
         if (('AAD_PREMIUM' -in $CAAvailable.servicePlanName) -or ('AAD_PREMIUM_P2' -in $CAAvailable.servicePlanName)) {
             $CAPolicies = (New-GraphGetRequest -uri 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies' -tenantid $TenantFilter)
             if (!$CAPolicies.id) {
-                $AlertData = 'Conditional Access is available, but no policies could be found.'
+                $AlertData = [PSCustomObject]@{
+                    Message = 'Conditional Access is available, but no policies could be found.'
+                    Tenant  = $TenantFilter
+                }
+
                 Write-AlertTrace -cmdletName $MyInvocation.MyCommand -tenantFilter $TenantFilter -data $AlertData
             }
         }
     } catch {
-        Write-AlertMessage -tenant $($TenantFilter) -message "Conditional Access Config Alert: Error occurred: $(Get-NormalizedError -message $_.Exception.message)"
+        Write-LogMessage -API 'Alerts' -tenant $($TenantFilter) -message "Conditional Access Config Alert: Error occurred: $(Get-NormalizedError -message $_.Exception.message)" -sev Error
     }
 
 }

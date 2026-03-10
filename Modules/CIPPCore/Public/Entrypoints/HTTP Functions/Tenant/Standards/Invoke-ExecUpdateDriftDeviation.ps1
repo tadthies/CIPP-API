@@ -44,16 +44,23 @@ function Invoke-ExecUpdateDriftDeviation {
                         $StandardTemplate = Get-CIPPTenantAlignment -TenantFilter $TenantFilter | Where-Object -Property standardType -EQ 'drift'
                         if ($Setting -like '*IntuneTemplate*') {
                             $Setting = 'IntuneTemplate'
-                            $TemplateId = $Deviation.standardName.split('.') | Select-Object -Last 1
-                            $StandardTemplate = $StandardTemplate.standardSettings.IntuneTemplate | Where-Object { $_.TemplateList.value -eq $TemplateId }
+                            $TemplateId = $Deviation.standardName.split('.') | Select-Object -Index 2
+                            $StandardTemplate = $StandardTemplate.standardSettings.IntuneTemplate | Where-Object { $_.TemplateList.value -like "*$TemplateId*" }
+                            $StandardTemplate | Add-Member -MemberType NoteProperty -Name 'remediate' -Value $true -Force
+                            $StandardTemplate | Add-Member -MemberType NoteProperty -Name 'report' -Value $true -Force
+                            $Settings = $StandardTemplate
+                        } elseif ($Setting -like '*ConditionalAccessTemplate*') {
+                            $Setting = 'ConditionalAccessTemplate'
+                            $TemplateId = $Deviation.standardName.split('.') | Select-Object -Index 2
+                            $StandardTemplate = $StandardTemplate.standardSettings.ConditionalAccessTemplate | Where-Object { $_.TemplateList.value -like "*$TemplateId*" }
                             $StandardTemplate | Add-Member -MemberType NoteProperty -Name 'remediate' -Value $true -Force
                             $StandardTemplate | Add-Member -MemberType NoteProperty -Name 'report' -Value $true -Force
                             $Settings = $StandardTemplate
                         } else {
                             $StandardTemplate = $StandardTemplate.standardSettings.$Setting
-                            $StandardTemplate.standards.$Setting | Add-Member -MemberType NoteProperty -Name 'remediate' -Value $true -Force
-                            $StandardTemplate.standards.$Setting | Add-Member -MemberType NoteProperty -Name 'report' -Value $true -Force
-                            $Settings = $StandardTemplate.standards.$Setting
+                            $StandardTemplate | Add-Member -MemberType NoteProperty -Name 'remediate' -Value $true -Force
+                            $StandardTemplate | Add-Member -MemberType NoteProperty -Name 'report' -Value $true -Force
+                            $Settings = $StandardTemplate
                         }
                         $TaskBody = @{
                             TenantFilter  = $TenantFilter
@@ -80,15 +87,20 @@ function Invoke-ExecUpdateDriftDeviation {
                     if ($Deviation.status -eq 'deniedDelete') {
                         $Policy = $Deviation.receivedValue | ConvertFrom-Json -ErrorAction SilentlyContinue
                         Write-Host "Policy is $($Policy)"
-                        $URLName = Get-CIPPURLName -Template $Policy
+                        if ($Deviation.standardName -like '*ConditionalAccessTemplates*') {
+                            $URLName = 'identity/conditionalAccess/policies'
+                        } else {
+                            $URLName = Get-CIPPURLName -Template $Policy
+                        }
+                        $ID = $Policy.ID
                         if ($Policy -and $URLName) {
-                            Write-Host "Going to delete Policy with ID $($policy.ID) Deviation Name is $($Deviation.standardName)"
-                            $null = New-GraphPostRequest -uri "https://graph.microsoft.com/beta/$($URLName)/$($policy.id)" -type DELETE -tenant $TenantFilter
+                            Write-Host "Going to delete Policy with ID $($Policy.ID) Deviation Name is $($Deviation.standardName)"
+                            $null = New-GraphPostRequest -uri "https://graph.microsoft.com/beta/$($URLName)/$($ID)" -type DELETE -tenant $TenantFilter
                             "Deleted Policy $($ID)"
                             Write-LogMessage -tenant $TenantFilter -user $request.headers.'x-ms-client-principal' -API $APINAME -message "Deleted Policy with ID $($ID)" -Sev 'Info'
                         } else {
                             "could not find policy with ID $($ID)"
-                            Write-LogMessage -tenant $TenantFilter -user $request.headers.'x-ms-client-principal' -API $APINAME -message "Could not find Policy with ID $($ID) to delete for remediation" -Sev 'Warning'
+                            Write-LogMessage -tenant $TenantFilter -user $request.headers.'x-ms-client-principal' -API $APINAME -message "Could not find Policy with ID $($ID) to delete for remediation" -sev 'Warn'
                         }
 
 

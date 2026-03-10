@@ -12,20 +12,47 @@ function Invoke-ExecRestoreBackup {
     try {
 
         if ($Request.Body.BackupName -like 'CippBackup_*') {
-            $Table = Get-CippTable -tablename 'CIPPBackup'
-            $Backup = Get-CippAzDataTableEntity @Table -Filter "RowKey eq '$($Request.Body.BackupName)' or OriginalEntityId eq '$($Request.Body.BackupName)'"
+            # Use Get-CIPPBackup which already handles fetching from blob storage
+            $Backup = Get-CIPPBackup -Type 'CIPP' -Name $Request.Body.BackupName
             if ($Backup) {
-                $BackupData = $Backup.Backup | ConvertFrom-Json -ErrorAction SilentlyContinue | Select-Object * -ExcludeProperty ETag, Timestamp
+                $raw = $Backup.Backup
+                $BackupData = $null
+
+                # Get-CIPPBackup already fetches blob content, so raw should be JSON string
+                try {
+                    if ($raw -is [string]) {
+                        $BackupData = $raw | ConvertFrom-Json -ErrorAction Stop
+                    } else {
+                        $BackupData = $raw | Select-Object * -ExcludeProperty ETag, Timestamp
+                    }
+                } catch {
+                    throw "Failed to parse backup JSON: $($_.Exception.Message)"
+                }
+
+                $SelectedTypes = $Request.Body.SelectedTypes
+                if ($SelectedTypes -and $SelectedTypes.Count -gt 0) {
+                    $BackupData = $BackupData | Where-Object {
+                        $item = $_
+                        if ($item.table -eq 'templates') {
+                            $typeKey = "templates:$($item.PartitionKey)"
+                        } else {
+                            $typeKey = $item.table
+                        }
+                        $SelectedTypes -contains $typeKey
+                    }
+                }
+                $RestoredCount = 0
                 $BackupData | ForEach-Object {
                     $Table = Get-CippTable -tablename $_.table
-                    $ht2 = @{ }
+                    $ht2 = @{}
                     $_.psobject.properties | ForEach-Object { $ht2[$_.Name] = [string]$_.Value }
                     $Table.Entity = $ht2
-                    Add-CIPPAzDataTableEntity @Table -Force
+                    Add-AzDataTableEntity @Table -Force
+                    $RestoredCount++
                 }
-                Write-LogMessage -headers $Request.Headers -API $APINAME -message "Restored backup $($Request.Body.BackupName)" -Sev 'Info'
+                Write-LogMessage -headers $Request.Headers -API $APINAME -message "Restored backup $($Request.Body.BackupName) - $RestoredCount rows restored" -Sev 'Info'
                 $body = [pscustomobject]@{
-                    'Results' = 'Successfully restored backup.'
+                    'Results' = "Successfully restored $RestoredCount rows from backup."
                 }
             } else {
                 $body = [pscustomobject]@{
@@ -33,17 +60,19 @@ function Invoke-ExecRestoreBackup {
                 }
             }
         } else {
+            $RestoredCount = 0
             foreach ($line in ($Request.body | Select-Object * -ExcludeProperty ETag, Timestamp)) {
                 $Table = Get-CippTable -tablename $line.table
                 $ht2 = @{}
                 $line.psobject.properties | ForEach-Object { $ht2[$_.Name] = [string]$_.Value }
                 $Table.Entity = $ht2
                 Add-AzDataTableEntity @Table -Force
+                $RestoredCount++
             }
-            Write-LogMessage -headers $Request.Headers -API $APINAME -message "Restored backup $($Request.Body.BackupName)" -Sev 'Info'
+            Write-LogMessage -headers $Request.Headers -API $APINAME -message "Restored backup - $RestoredCount rows restored" -Sev 'Info'
 
             $body = [pscustomobject]@{
-                'Results' = 'Successfully restored backup.'
+                'Results' = "Successfully restored $RestoredCount rows from backup."
             }
         }
     } catch {

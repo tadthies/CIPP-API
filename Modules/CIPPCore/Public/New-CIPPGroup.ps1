@@ -43,6 +43,7 @@ function New-CIPPGroup {
     try {
         # Normalize group type for consistent handling (accept camelCase from templates)
         $NormalizedGroupType = switch -Wildcard ($GroupObject.groupType.ToLower()) {
+            'mail-enabled security' { 'Security'; break }
             '*dynamicdistribution*' { 'DynamicDistribution'; break }  # Check this first before *dynamic* and *distribution*
             '*dynamic*' { 'Dynamic'; break }
             '*generic*' { 'Generic'; break }
@@ -57,7 +58,7 @@ function New-CIPPGroup {
         }
 
         # Determine if this group type needs an email address
-        $GroupTypesNeedingEmail = @('M365', 'Distribution', 'DynamicDistribution')
+        $GroupTypesNeedingEmail = @('M365', 'Distribution', 'DynamicDistribution', 'Security')
         $NeedsEmail = $NormalizedGroupType -in $GroupTypesNeedingEmail
 
         # Determine email address only for group types that need it
@@ -76,16 +77,23 @@ function New-CIPPGroup {
             $null
         }
 
+        # Determine if we should generate a mailNickname with a GUID, or use the username field
+        if (-not $GroupObject.Username) {
+            $MailNickname = (New-Guid).guid.substring(0, 10)
+        } else {
+            $MailNickname = $GroupObject.Username
+        }
+
         Write-LogMessage -API $APIName -tenant $TenantFilter -message "Creating group $($GroupObject.displayName) of type $NormalizedGroupType$(if ($NeedsEmail) { " with email $Email" })" -Sev Info
 
         # Handle Graph API groups (Security, Generic, AzureRole, Dynamic, M365)
-        if ($NormalizedGroupType -in @('Generic', 'Security', 'AzureRole', 'Dynamic', 'M365')) {
+        if ($NormalizedGroupType -in @('Generic', 'AzureRole', 'Dynamic', 'M365')) {
             Write-Information "Creating group $($GroupObject.displayName) of type $NormalizedGroupType$(if ($NeedsEmail) { " with email $Email" })"
             $BodyParams = [PSCustomObject]@{
                 'displayName'        = $GroupObject.displayName
                 'description'        = $GroupObject.description
-                'mailNickname'       = $GroupObject.username
-                'mailEnabled'        = ($NormalizedGroupType -in @('Security', 'M365'))
+                'mailNickname'       = $MailNickname
+                'mailEnabled'        = ($NormalizedGroupType -eq 'M365')
                 'securityEnabled'    = $true
                 'isAssignableToRole' = ($NormalizedGroupType -eq 'AzureRole')
             }
@@ -150,7 +158,15 @@ function New-CIPPGroup {
                 GroupType = $NormalizedGroupType
                 Email     = if ($NeedsEmail) { $Email } else { $null }
             }
-
+            if ($GroupObject.subscribeMembers) {
+                #Waiting for group to become available in Exo.
+                Start-Sleep -Seconds 10
+                $SubParams = @{
+                    Identity                  = $GraphRequest.id
+                    'autoSubscribeNewMembers' = $true
+                }
+                $null = New-ExoRequest -tenantid $TenantFilter -cmdlet 'Set-UnifiedGroup' -cmdParams $SubParams
+            }
         } else {
             # Handle Exchange Online groups (Distribution, DynamicDistribution)
 
@@ -178,11 +194,15 @@ function New-CIPPGroup {
 
                 $ExoParams = @{
                     Name                               = $GroupObject.displayName
-                    Alias                              = $GroupObject.username
+                    Alias                              = $MailNickname
                     Description                        = $GroupObject.description
                     PrimarySmtpAddress                 = $Email
                     Type                               = $GroupObject.groupType
                     RequireSenderAuthenticationEnabled = [bool]!$GroupObject.allowExternal
+                }
+
+                if ($NormalizedGroupType -eq 'Security') {
+                    $ExoParams.Type = 'Security'
                 }
 
                 # Add owners
