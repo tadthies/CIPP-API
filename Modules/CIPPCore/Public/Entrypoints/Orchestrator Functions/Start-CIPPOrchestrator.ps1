@@ -33,12 +33,69 @@ function Start-CIPPOrchestrator {
 
         [switch]$CallerIsQueueTrigger
     )
+
+    # ─── CIPPNG runtime: push batch directly to OrchestratorService ───
+    if ($env:CIPPNG -eq 'true' -and $InputObject) {
+        $OrchestratorName = $InputObject.OrchestratorName ?? 'UnnamedOrchestrator'
+        $BatchJson = ConvertTo-Json -InputObject @($InputObject.Batch) -Depth 10 -Compress
+
+        $PostExecFunctionName = $null
+        $PostExecParametersJson = $null
+        if ($InputObject.PostExecution) {
+            $PostExecFunctionName = $InputObject.PostExecution.FunctionName
+            if ($InputObject.PostExecution.Parameters) {
+                $PostExecParametersJson = $InputObject.PostExecution.Parameters | ConvertTo-Json -Depth 10 -Compress
+            }
+        }
+
+        Write-Information "CIPP-NG: Queuing orchestrator '$OrchestratorName' ($($InputObject.Batch.Count) tasks$(if ($PostExecFunctionName) { ", PostExec: $PostExecFunctionName" }))"
+        [CIPPASP.Services.OrchestratorBridge]::QueueOrchestration(
+            $OrchestratorName,
+            $BatchJson,
+            4,
+            $PostExecFunctionName,
+            $PostExecParametersJson
+        )
+        return "CIPPNG-$OrchestratorName"
+    }
+
     $OrchestratorTable = Get-CippTable -TableName 'CippOrchestratorInput'
+    $BatchTable = Get-CippTable -TableName 'CippOrchestratorBatch'
+
+    # Ensure orchestrator tables exist
+    $null = Get-CippTable -TableName "$($env:WEBSITE_SITE_NAME -replace '-', '')Instances"
+    $null = Get-CippTable -TableName "$($env:WEBSITE_SITE_NAME -replace '-', '')History"
 
     # If already running in processor context (e.g., timer trigger) and we have an InputObject,
     # start orchestration directly without queuing
-    if ($InputObject -and ($env:CIPP_PROCESSOR -eq 'true' -or $CallerIsQueueTrigger.IsPresent)) {
+
+    $OrchestratorTriggerDisabled = $env:AzureWebJobs_CIPPOrchestrator_Disabled -in @('true', '1') -or [System.Environment]::GetEnvironmentVariable('AzureWebJobs.CIPPOrchestrator.Disabled') -in @('true', '1')
+
+    if ($InputObject -and -not $OrchestratorTriggerDisabled) {
         Write-Information 'Running in processor context - starting orchestration directly'
+        if ($InputObject.Batch) {
+            # Store batch items separately to enable querying and tracking
+            $BatchGuid = (New-Guid).Guid.ToString()
+            foreach ($BatchItem in $InputObject.Batch) {
+                $BatchEntity = @{
+                    PartitionKey = $BatchGuid
+                    RowKey       = (New-Guid).Guid.ToString()
+                    BatchItem    = [string]($BatchItem | ConvertTo-Json -Depth 10 -Compress)
+                }
+                Add-CIPPAzDataTableEntity @BatchTable -Entity $BatchEntity -Force
+            }
+
+            # Remove batch from main input object to reduce size
+            $InputObject.PSObject.Properties.Remove('Batch')
+
+            # Add queue function reference to retrieve batch items in orchestrator
+            $InputObject | Add-Member -NotePropertyName 'QueueFunction' -NotePropertyValue @{
+                FunctionName = 'OrchestratorBatchItems'
+                Parameters   = @{
+                    BatchId = $BatchGuid
+                }
+            } -Force
+        }
         try {
             $InstanceId = Start-NewOrchestration -FunctionName 'CIPPOrchestrator' -InputObject ($InputObject | ConvertTo-Json -Depth 10 -Compress)
             Write-Information "Orchestration started with instance ID: $InstanceId"
@@ -67,8 +124,8 @@ function Start-CIPPOrchestrator {
 
             # Clean up the stored input object after starting the orchestration
             try {
-                $Entities = Get-AzDataTableEntity @OrchestratorTable -Filter "PartitionKey eq 'Input' and (RowKey eq '$InputObjectGuid' or OriginalEntityId eq '$InputObjectGuid')" -Property 'PartitionKey', 'RowKey', 'ETag'
-                Remove-AzDataTableEntity @OrchestratorTable -Entity $Entities
+                $Entities = Get-AzDataTableEntity @OrchestratorTable -Filter "PartitionKey eq 'Input' and (RowKey eq '$InputObjectGuid' or OriginalEntityId eq '$InputObjectGuid' or OriginalEntityId eq guid'$InputObjectGuid')" -Property PartitionKey, RowKey
+                Remove-AzDataTableEntity @OrchestratorTable -Entity $Entities -Force
                 Write-Information "Cleaned up stored input object: $InputObjectGuid"
             } catch {
                 Write-Warning "Failed to clean up stored input object $InputObjectGuid : $_"
@@ -84,6 +141,29 @@ function Start-CIPPOrchestrator {
         try {
             # Store the input object in table storage
             $Guid = (New-Guid).Guid.ToString()
+
+            if ($InputObject.Batch) {
+                # Store batch items separately to enable querying and tracking
+                foreach ($BatchItem in $InputObject.Batch) {
+                    $BatchEntity = @{
+                        PartitionKey = $Guid
+                        RowKey       = (New-Guid).Guid.ToString()
+                        BatchItem    = [string]($BatchItem | ConvertTo-Json -Depth 10 -Compress)
+                    }
+                    Add-CIPPAzDataTableEntity @BatchTable -Entity $BatchEntity -Force
+                }
+
+                # Remove batch from main input object to reduce size
+                $InputObject.PSObject.Properties.Remove('Batch')
+
+                # Add queue function reference to retrieve batch items in orchestrator
+                $InputObject | Add-Member -MemberType NoteProperty -Force -Name QueueFunction -Value @{
+                    FunctionName = 'OrchestratorBatchItems'
+                    Parameters   = @{
+                        BatchId = $Guid
+                    }
+                }
+            }
 
             $StoredInput = @{
                 PartitionKey = 'Input'
