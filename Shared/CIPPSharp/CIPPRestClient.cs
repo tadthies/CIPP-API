@@ -57,9 +57,10 @@ namespace CIPP
     //   AdminPlane      5   admin.microsoft.com, reports, Defender, etc.
     //   Compliance      5   compliance redirect discovery (no-redirect)
     //   PartnerCenter   5   api.partnercenter.microsoft.com
+    //   DNS             2   dns.google.com, cloudflare-dns.com (per host)
     //   Default         5   catch-all + absorbs legacy Invoke-RestMethod calls
     //   ─────────────
-    //   Total          75   leaves a 50-port buffer for the Functions host,
+    //   Total          79   leaves a 46-port buffer for the Functions host,
     //                       Durable extension, AppInsights, Azure SDK clients,
     //                       and any stragglers that bypass the pool.
     //
@@ -111,6 +112,7 @@ namespace CIPP
         private static HttpClient? _complianceClient;
         private static HttpClient? _partnerCenterClient;
         private static HttpClient? _adminPlaneClient;
+        private static HttpClient? _dnsClient;
         private static HttpClient? _defaultClient;
 
         /// <summary>
@@ -266,6 +268,24 @@ namespace CIPP
         }) { Timeout = Timeout.InfiniteTimeSpan };
 
         /// <summary>
+        /// DNS client — dedicated lane for DoH (DNS-over-HTTPS) providers.
+        /// Covers dns.google.com and cloudflare-dns.com. These services
+        /// heavily load-balance across many server IPs, so a low per-server
+        /// cap avoids spreading connections across dozens of backends.
+        /// Cap: 2 connections per server.
+        /// </summary>
+        private static HttpClient BuildDnsClient() => new HttpClient(new SocketsHttpHandler
+        {
+            AutomaticDecompression         = DecompressionMethods.All,
+            PooledConnectionLifetime       = TimeSpan.FromMinutes(30),
+            PooledConnectionIdleTimeout    = TimeSpan.FromMinutes(2),
+            EnableMultipleHttp2Connections = false,
+            AllowAutoRedirect              = true,
+            MaxAutomaticRedirections       = 5,
+            MaxConnectionsPerServer        = 2,
+        }) { Timeout = Timeout.InfiniteTimeSpan };
+
+        /// <summary>
         /// Default catch-all client — handles any hostname not matched by the
         /// routing switch, including unknown Microsoft endpoints and any
         /// third-party APIs called via this wrapper.
@@ -301,6 +321,7 @@ namespace CIPP
                 _complianceClient is not null &&
                 _partnerCenterClient is not null &&
                 _adminPlaneClient is not null &&
+                _dnsClient        is not null &&
                 _defaultClient    is not null)
                 return;
 
@@ -316,6 +337,7 @@ namespace CIPP
                     _complianceClient = BuildComplianceClient();
                     _partnerCenterClient = BuildPartnerCenterClient();
                     _adminPlaneClient = BuildAdminPlaneClient();
+                    _dnsClient        = BuildDnsClient();
                     _defaultClient    = BuildDefaultClient();
                 }
             }
@@ -400,7 +422,13 @@ namespace CIPP
                 // Rule 6 — Microsoft admin/reporting/security lanes
                 var h when IsAdminPlaneHost(h)                             => (_adminPlaneClient!, "AdminPlane", host),
 
-                // Rule 7 — catch-all
+                // Rule 7 — DNS-over-HTTPS providers (low connection cap)
+                var h when h.Equals("dns.google.com",
+                    StringComparison.OrdinalIgnoreCase)                    => (_dnsClient!, "DNS", host),
+                var h when h.Equals("cloudflare-dns.com",
+                    StringComparison.OrdinalIgnoreCase)                    => (_dnsClient!, "DNS", host),
+
+                // Rule 8 — catch-all
                 _                                                           => (_defaultClient!, "Default", host),
             };
         }
@@ -761,11 +789,18 @@ namespace CIPP
         private static readonly ConcurrentDictionary<string, TokenCacheEntry> _entries =
             new(StringComparer.OrdinalIgnoreCase);
 
+        // Per-key semaphores to prevent thundering herd / cache stampede.
+        // When multiple runspaces miss the cache for the same key simultaneously,
+        // only one acquires a token while the others wait and reuse the result.
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> _keyLocks =
+            new(StringComparer.OrdinalIgnoreCase);
+
         private static long _hits;
         private static long _misses;
         private static long _sets;
         private static long _invalidations;
         private static long _expiredRemovals;
+        private static long _lockWaits;
 
         public static string BuildKey(
             string tenantId,
@@ -862,6 +897,37 @@ namespace CIPP
             return removed;
         }
 
+        /// <summary>
+        /// Acquire a per-key lock to prevent thundering herd on cache miss.
+        /// Returns true if the lock was acquired within the timeout.
+        /// After acquiring, the caller should Lookup() again (double-check),
+        /// then acquire the token and Store() it, then ReleaseLock().
+        /// </summary>
+        public static bool AcquireLock(string key, int timeoutMs = 30000)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+                return false;
+
+            var sem = _keyLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
+            Interlocked.Increment(ref _lockWaits);
+            return sem.Wait(timeoutMs);
+        }
+
+        /// <summary>
+        /// Release the per-key lock after token acquisition and Store().
+        /// Safe to call even if AcquireLock returned false (no-ops gracefully).
+        /// </summary>
+        public static void ReleaseLock(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+                return;
+
+            if (_keyLocks.TryGetValue(key, out var sem))
+            {
+                try { sem.Release(); } catch (SemaphoreFullException) { /* already released */ }
+            }
+        }
+
         public static string GetDiagnostics()
         {
             return JsonSerializer.Serialize(new
@@ -872,6 +938,8 @@ namespace CIPP
                 Sets = Interlocked.Read(ref _sets),
                 Invalidations = Interlocked.Read(ref _invalidations),
                 ExpiredRemovals = Interlocked.Read(ref _expiredRemovals),
+                LockWaits = Interlocked.Read(ref _lockWaits),
+                ActiveLocks = _keyLocks.Count,
             }, new JsonSerializerOptions { WriteIndented = true });
         }
 
@@ -882,6 +950,7 @@ namespace CIPP
             Interlocked.Exchange(ref _sets, 0);
             Interlocked.Exchange(ref _invalidations, 0);
             Interlocked.Exchange(ref _expiredRemovals, 0);
+            Interlocked.Exchange(ref _lockWaits, 0);
         }
     }
 }

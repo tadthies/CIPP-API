@@ -92,6 +92,8 @@ function Invoke-ListTenantAlignment {
                     alignmentScore           = $_.AlignmentScore
                     LicenseMissingPercentage = $_.LicenseMissingPercentage
                     combinedAlignmentScore   = $_.CombinedScore
+                    pendingDeviationsCount   = $_.PendingDeviationsCount
+                    deniedDeviationsCount    = $_.DeniedDeviationsCount
                     latestDataCollection     = $_.LatestDataCollection
                 }
             }

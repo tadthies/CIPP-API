@@ -10,13 +10,10 @@ function Push-AuditLogSearchCreation {
     $Tenant = $Item.Tenant
     $StartTime = $Item.StartTime
     $EndTime = $Item.EndTime
-    $ServiceFilters = @($Item.ServiceFilters)
-
     try {
         $LogSearch = @{
             StartTime         = $StartTime
             EndTime           = $EndTime
-            ServiceFilters    = $ServiceFilters
             TenantFilter      = $Tenant.defaultDomainName
             ProcessLogs       = $true
             RecordTypeFilters = @(
@@ -30,6 +27,8 @@ function Push-AuditLogSearchCreation {
             $NewSearch = New-CippAuditLogSearch @LogSearch
             if ($NewSearch.id) {
                 Write-Information "Created audit log search $($Tenant.defaultDomainName) - $($NewSearch.displayName)"
+            } elseif ($NewSearch.cippStatus -eq 'TransientError') {
+                Write-Information "Audit log search creation hit transient error for tenant $($Tenant.defaultDomainName) ($($NewSearch.status))"
             } elseif ($NewSearch.status -eq 'AuditingDisabledTenant') {
                 Write-Information "Skipping audit log search $($Tenant.defaultDomainName) because unified auditing is disabled for this tenant"
                 Write-LogMessage -API 'Audit Logs' -Message "Skipped audit log search creation for tenant $($Tenant.defaultDomainName) because unified auditing is disabled" -Sev Warning -tenant $Tenant.defaultDomainName
@@ -41,7 +40,7 @@ function Push-AuditLogSearchCreation {
     } catch {
         Write-Information "Error creating audit log search $($Tenant.defaultDomainName) - $($_.Exception.Message)"
         Write-Information $_.InvocationInfo.PositionMessage
-        Write-LogMessage -API 'Audit Logs' -tenant $Tenant.defaultDomainName -Message "Error creating audit log search for tenant $($Tenant.defaultDomainName): $($_.Exception.Message)" -Sev Error -LogData (Get-CippException -Exception $_)
+        #Write-LogMessage -API 'Audit Logs' -tenant $Tenant.defaultDomainName -Message "Error creating audit log search for tenant $($Tenant.defaultDomainName): $($_.Exception.Message)" -Sev Error -LogData (Get-CippException -Exception $_)
     }
     return $true
 }
