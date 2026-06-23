@@ -19,6 +19,13 @@ jobs:
       - name: 'Checkout GitHub Action'
         uses: actions/checkout@v4
 
+      - name: 'Validate publish profile secret'
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace('${{ secrets.AZUREAPPSERVICE_PUBLISH_PROFILE }}')) {
+            throw 'Missing GitHub secret: AZUREAPPSERVICE_PUBLISH_PROFILE'
+          }
+
       - name: 'Run Azure Functions Action'
         uses: Azure/functions-action@v1
         id: fa
@@ -26,4 +33,4 @@ jobs:
           app-name: 'cipp7cbdr'
           slot-name: 'Production'
           package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_1EBE9D73F9EC4528BA666FC934055536 }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISH_PROFILE }}
