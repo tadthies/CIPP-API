@@ -56,9 +56,11 @@ function Get-CIPPSchedulerBlockedCommands {
         'Set-CippKeyVaultSecret'
         'Remove-CippKeyVaultSecret'
         'Get-CIPPSAMCertificate'
+        'Get-CIPPSAMCertificateVersions'
         'New-CIPPSAMCertificate'
         'Set-CIPPSAMCertificate'
         'Update-CIPPSAMCertificate'
+        'ConvertTo-CIPPSAMCertificateInfo'
         'Get-ExtensionAPIKey'
         'Set-ExtensionAPIKey'
         'Remove-ExtensionAPIKey'
@@ -69,6 +71,7 @@ function Get-CIPPSchedulerBlockedCommands {
         'Get-CIPPBitlockerKey'
         'Search-CIPPBitlockerKeys'
         'Get-CIPPFileVaultKey'
+        'Get-CIPPBiosPassword'
 
         # SAM/CPV & app registration configuration - privilege escalation / token theft vectors
         'Set-CIPPCPVConsent'
